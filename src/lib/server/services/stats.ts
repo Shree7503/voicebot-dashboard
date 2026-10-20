@@ -3,7 +3,7 @@ import "server-only";
 import type { Document } from "mongodb";
 import { categoryLabel } from "../categories";
 import { botCol } from "../db";
-import { env, type DataEnv } from "../env";
+import { env } from "../env";
 import { OUTCOMES, outcomeExpr } from "../outcomes";
 import { daysIn, IST_TZ, type DateRange } from "../schemas/query";
 
@@ -41,9 +41,9 @@ const NOT_RECORDED = {
 
 // ------------------------------------------------------------------ overview
 
-export async function overview(dataEnv: DataEnv, range: DateRange) {
-  const interactions = await botCol("interactions", dataEnv);
-  const cases = await botCol("cases", dataEnv);
+export async function overview(range: DateRange) {
+  const interactions = await botCol("interactions");
+  const cases = await botCol("cases");
 
   const [facet] = await interactions
     .aggregate<Document>([
@@ -85,7 +85,7 @@ export async function overview(dataEnv: DataEnv, range: DateRange) {
     .toArray();
 
   // WhatsApp alerts that reached WhatsApp (case_store's outbox), by the day they were sent
-  const alertsSent = await (await botCol("alerts", dataEnv))
+  const alertsSent = await (await botCol("alerts"))
     .aggregate<{ _id: string; n: number }>([
       { $match: { status: "sent", sentAt: { $gte: range.from, $lt: range.to } } },
       { $group: { _id: dayExpr("$sentAt"), n: { $sum: 1 } } },
@@ -134,7 +134,6 @@ export async function overview(dataEnv: DataEnv, range: DateRange) {
   const processing = Object.fromEntries(counts(facet.processing).map((r) => [r.key, r.count]));
 
   return {
-    dataEnv,
     range: { from: range.fromDay, to: range.toDay, timezone: IST_TZ },
     totals: {
       calls: totals.calls,
@@ -168,8 +167,8 @@ export async function overview(dataEnv: DataEnv, range: DateRange) {
 
 // ------------------------------------------------------------------ languages
 
-export async function languages(dataEnv: DataEnv, range: DateRange) {
-  const interactions = await botCol("interactions", dataEnv);
+export async function languages(range: DateRange) {
+  const interactions = await botCol("interactions");
   const rows = await interactions
     .aggregate<Document>([
       { $match: inRange("startedAt", range) },
@@ -196,7 +195,6 @@ export async function languages(dataEnv: DataEnv, range: DateRange) {
 
   const total = rows.reduce((sum, row) => sum + row.calls, 0);
   return {
-    dataEnv,
     range: { from: range.fromDay, to: range.toDay, timezone: IST_TZ },
     total,
     languages: rows.map((row) => ({
@@ -215,10 +213,10 @@ export async function languages(dataEnv: DataEnv, range: DateRange) {
 
 // ------------------------------------------------------------------ outcomes (cases and topics)
 
-export async function outcomes(dataEnv: DataEnv, range: DateRange) {
-  const cases = await botCol("cases", dataEnv);
-  const alerts = await botCol("alerts", dataEnv);
-  const interactions = await botCol("interactions", dataEnv);
+export async function outcomes(range: DateRange) {
+  const cases = await botCol("cases");
+  const alerts = await botCol("alerts");
+  const interactions = await botCol("interactions");
 
   const [caseFacet] = await cases
     .aggregate<Document>([
@@ -273,7 +271,6 @@ export async function outcomes(dataEnv: DataEnv, range: DateRange) {
 
   const ack = caseFacet.ackMinutes[0];
   return {
-    dataEnv,
     range: { from: range.fromDay, to: range.toDay, timezone: IST_TZ },
     emergencies: {
       total: caseFacet.priority.reduce((sum: number, row: { n: number }) => sum + row.n, 0),
@@ -298,9 +295,9 @@ export async function outcomes(dataEnv: DataEnv, range: DateRange) {
 
 const DURATION_BUCKETS = [0, 15, 30, 60, 120, 300];
 
-export async function timing(dataEnv: DataEnv, range: DateRange) {
-  const interactions = await botCol("interactions", dataEnv);
-  const alerts = await botCol("alerts", dataEnv);
+export async function timing(range: DateRange) {
+  const interactions = await botCol("interactions");
+  const alerts = await botCol("alerts");
 
   const [facet] = await interactions
     .aggregate<Document>([
@@ -355,7 +352,6 @@ export async function timing(dataEnv: DataEnv, range: DateRange) {
     return `${id}-${next}`;
   };
   return {
-    dataEnv,
     range: { from: range.fromDay, to: range.toDay, timezone: IST_TZ },
     durationByChannel: facet.byChannel.map((row: Document) => ({
       channel: row._id,

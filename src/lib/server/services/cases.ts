@@ -3,7 +3,6 @@ import "server-only";
 import type { Document, Filter } from "mongodb";
 import { CASE_STATUSES, categoryLabel, PRIORITIES } from "../categories";
 import { botCol } from "../db";
-import type { DataEnv } from "../env";
 import { ApiError } from "../errors";
 import type { Actor } from "../http";
 import { maskPhone, scrubDigits } from "../privacy";
@@ -53,8 +52,8 @@ function caseSummary(doc: Document) {
   };
 }
 
-export async function listCases(dataEnv: DataEnv, query: CaseQuery) {
-  const cases = await botCol("cases", dataEnv);
+export async function listCases(query: CaseQuery) {
+  const cases = await botCol("cases");
   const filter: Filter<Document> = {
     type: "emergency",
     createdAt: { $gte: query.range.from, $lt: query.before && query.before < query.range.to ? query.before : query.range.to },
@@ -84,20 +83,20 @@ function eventData(kind: string, data: Document | undefined) {
   return safe;
 }
 
-export async function getCase(dataEnv: DataEnv, id: string) {
-  const cases = await botCol("cases", dataEnv);
+export async function getCase(id: string) {
+  const cases = await botCol("cases");
   const doc = await cases.findOne({ _id: id as unknown as Document["_id"] });
   if (!doc || doc.type !== "emergency") throw new ApiError(404, "not_found", `There is no case ${id}.`);
 
   const [events, alerts] = await Promise.all([
-    (await botCol("case_events", dataEnv)).find({ caseId: id }).sort({ at: 1 }).limit(500).toArray(),
-    (await botCol("alerts", dataEnv))
+    (await botCol("case_events")).find({ caseId: id }).sort({ at: 1 }).limit(500).toArray(),
+    (await botCol("alerts"))
       .find({ caseId: id }, { projection: { kind: 1, status: 1, attempts: 1, createdAt: 1, sentAt: 1, sentTemplate: 1, lastError: 1 } })
       .sort({ createdAt: 1 })
       .toArray(),
   ]);
   const incident = doc.incidentId
-    ? await (await botCol("incidents", dataEnv)).findOne(
+    ? await (await botCol("incidents")).findOne(
         { _id: doc.incidentId },
         { projection: { caseIds: 1, count: 1, firstAt: 1, lastAt: 1, family: 1, area: 1 } },
       )
@@ -157,8 +156,8 @@ export type CaseAction =
  * The same writes as CaseStore.set_status / set_verdict in the bot (case_store/store.py),
  * including the case_events entry, so the bot's CLI and the dashboard show one timeline.
  */
-export async function actOnCase(dataEnv: DataEnv, actor: Actor, id: string, change: CaseAction) {
-  const cases = await botCol("cases", dataEnv);
+export async function actOnCase(actor: Actor, id: string, change: CaseAction) {
+  const cases = await botCol("cases");
   const before = await cases.findOne({ _id: id as unknown as Document["_id"] });
   if (!before || before.type !== "emergency") throw new ApiError(404, "not_found", `There is no case ${id}.`);
   const now = new Date();
@@ -170,22 +169,22 @@ export async function actOnCase(dataEnv: DataEnv, actor: Actor, id: string, chan
     }
     const stamp = change.status === "acknowledged" ? "acknowledgedAt" : "closedAt";
     await cases.updateOne({ _id: before._id }, { $set: { status: change.status, [stamp]: now, updatedAt: now } });
-    await (await botCol("case_events", dataEnv)).insertOne({ caseId: id, kind: change.status, at: now, by, data: { note: change.note } });
-    await audit(actor, `case.${change.status}`, `case:${dataEnv}:${id}`, { status: before.status }, { status: change.status }, change.note);
+    await (await botCol("case_events")).insertOne({ caseId: id, kind: change.status, at: now, by, data: { note: change.note } });
+    await audit(actor, `case.${change.status}`, `case:${id}`, { status: before.status }, { status: change.status }, change.note);
   } else {
     const verdict = { value: change.verdict, by, note: change.note, at: now };
     await cases.updateOne({ _id: before._id }, { $set: { verdict, updatedAt: now } });
-    await (await botCol("case_events", dataEnv)).insertOne({ caseId: id, kind: "verdict", at: now, by, data: { value: change.verdict, note: change.note } });
-    await audit(actor, "case.verdict", `case:${dataEnv}:${id}`, { verdict: before.verdict?.value ?? null }, { verdict: change.verdict }, change.note);
+    await (await botCol("case_events")).insertOne({ caseId: id, kind: "verdict", at: now, by, data: { value: change.verdict, note: change.note } });
+    await audit(actor, "case.verdict", `case:${id}`, { verdict: before.verdict?.value ?? null }, { verdict: change.verdict }, change.note);
   }
-  return getCase(dataEnv, id);
+  return getCase(id);
 }
 
 /** The caller's full number, for the control room to call back. Every reveal is audited. */
-export async function revealCaseCaller(dataEnv: DataEnv, actor: Actor, id: string) {
-  const cases = await botCol("cases", dataEnv);
+export async function revealCaseCaller(actor: Actor, id: string) {
+  const cases = await botCol("cases");
   const doc = await cases.findOne({ _id: id as unknown as Document["_id"] }, { projection: { type: 1, "citizen.phone": 1 } });
   if (!doc || doc.type !== "emergency") throw new ApiError(404, "not_found", `There is no case ${id}.`);
-  await audit(actor, "case.caller.reveal", `case:${dataEnv}:${id}`, null, null);
+  await audit(actor, "case.caller.reveal", `case:${id}`, null, null);
   return { phone: doc.citizen?.phone ?? null };
 }

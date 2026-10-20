@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Document, Filter } from "mongodb";
 import { botCol } from "../db";
-import type { DataEnv } from "../env";
 import { ApiError } from "../errors";
 import { outcomeMatch, outcomeOf, type Outcome } from "../outcomes";
 import { maskPhone } from "../privacy";
@@ -43,8 +42,8 @@ function callRow(doc: Document) {
   };
 }
 
-export async function listCalls(dataEnv: DataEnv, query: CallQuery) {
-  const interactions = await botCol("interactions", dataEnv);
+export async function listCalls(query: CallQuery) {
+  const interactions = await botCol("interactions");
   const filter: Filter<Document> = {
     startedAt: { $gte: query.range.from, $lt: query.before && query.before < query.range.to ? query.before : query.range.to },
   };
@@ -59,7 +58,7 @@ export async function listCalls(dataEnv: DataEnv, query: CallQuery) {
     .toArray();
   const page = docs.slice(0, query.limit);
   // emergencies reported in these calls, for the "Emergency" badge
-  const cases = await (await botCol("cases", dataEnv))
+  const cases = await (await botCol("cases"))
     .find({ interactionId: { $in: page.map((doc) => doc._id) } }, { projection: { _id: 1, interactionId: 1, priority: 1 } })
     .toArray();
   return {
@@ -71,14 +70,14 @@ export async function listCalls(dataEnv: DataEnv, query: CallQuery) {
   };
 }
 
-export async function getCall(dataEnv: DataEnv, id: string) {
-  const interactions = await botCol("interactions", dataEnv);
+export async function getCall(id: string) {
+  const interactions = await botCol("interactions");
   const doc = await interactions.findOne(
     { _id: id as unknown as Document["_id"] },
     { projection: { summary: { summary: 1, language: 1, topics: 1, clear: 1 }, channel: 1, agentId: 1, citizenId: 1, startedAt: 1, endedAt: 1, durationSec: 1, turnCounts: 1, toolsUsed: 1, status: 1, attempts: 1 } },
   );
   if (!doc) throw new ApiError(404, "not_found", `There is no call ${id}.`);
-  const cases = await (await botCol("cases", dataEnv))
+  const cases = await (await botCol("cases"))
     .find({ interactionId: id }, { projection: { _id: 1, priority: 1, category: 1, status: 1 } })
     .toArray();
   return {
@@ -90,11 +89,11 @@ export async function getCall(dataEnv: DataEnv, id: string) {
 }
 
 /** The caller's full number. Every reveal is audited. */
-export async function revealCallCaller(dataEnv: DataEnv, actor: Actor, id: string) {
-  const interactions = await botCol("interactions", dataEnv);
+export async function revealCallCaller(actor: Actor, id: string) {
+  const interactions = await botCol("interactions");
   const doc = await interactions.findOne({ _id: id as unknown as Document["_id"] }, { projection: { citizenId: 1 } });
   if (!doc) throw new ApiError(404, "not_found", `There is no call ${id}.`);
-  await audit(actor, "call.caller.reveal", `call:${dataEnv}:${id}`, null, null);
+  await audit(actor, "call.caller.reveal", `call:${id}`, null, null);
   return { phone: doc.citizenId ?? null };
 }
 
@@ -102,10 +101,10 @@ export async function revealCallCaller(dataEnv: DataEnv, actor: Actor, id: strin
  * The conversation, as citizen_store stored it (long numbers and OTP-like words already
  * removed from what the caller said). Tool calls show only the tool's name. Every view is audited.
  */
-export async function getTranscript(dataEnv: DataEnv, actor: Actor, id: string) {
-  const transcripts = await botCol("transcripts", dataEnv);
+export async function getTranscript(actor: Actor, id: string) {
+  const transcripts = await botCol("transcripts");
   const doc = await transcripts.findOne({ _id: id as unknown as Document["_id"] });
-  await audit(actor, "call.transcript.view", `call:${dataEnv}:${id}`, null, null);
+  await audit(actor, "call.transcript.view", `call:${id}`, null, null);
   if (!doc) return { available: false as const, turns: [] };
   const turns = (doc.turns ?? [])
     .map((turn: Document) => {

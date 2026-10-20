@@ -6,7 +6,6 @@ import { hasRole, type Role } from "./auth/roles";
 import { requireAuthSettings } from "./auth/login";
 import { SESSION_COOKIE, verifySession } from "./auth/session";
 import { ensureDashIndexes } from "./db";
-import { env, type DataEnv } from "./env";
 import { ApiError } from "./errors";
 
 export { ApiError };
@@ -94,11 +93,4 @@ export async function readJson<S extends z.ZodType>(request: NextRequest, schema
     throw new ApiError(400, "bad_json", "The request body is not valid JSON.");
   }
   return schema.parse(body);
-}
-
-/** ?env=test reads the browser test page's traffic; anything else reads the default. */
-export function dataEnv(request: NextRequest): DataEnv {
-  const value = request.nextUrl.searchParams.get("env");
-  if (value === "test" || value === "prod") return value;
-  return env.defaultDataEnv;
 }

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "@/lib/auth";
-import { DataSourceSwitch, TestDataBanner } from "@/components/data-source-switch";
 import { useState, ReactNode } from "react";
 
 const navItems = [
@@ -104,9 +103,6 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
-          <div className="py-2">
-            <DataSourceSwitch />
-          </div>
           <button
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground-muted hover:bg-surface-raised hover:text-foreground transition-colors mt-1"
@@ -154,8 +150,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         </nav>
 
         {/* Bottom section */}
-        <div className="border-t border-border px-3 py-3 space-y-3">
-          <DataSourceSwitch />
+        <div className="border-t border-border px-3 py-3">
           <button
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-foreground-muted hover:bg-surface-raised hover:text-foreground transition-colors"
@@ -170,7 +165,6 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
-        <TestDataBanner />
         {children}
       </main>
     </div>

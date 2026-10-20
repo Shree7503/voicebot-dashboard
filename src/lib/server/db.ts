@@ -2,13 +2,13 @@ import "server-only";
 
 import type { Collection, Db, Document } from "mongodb";
 import mongoose, { type Mongoose } from "mongoose";
-import { env, type DataEnv } from "./env";
+import { env } from "./env";
 
 /**
  * MongoDB access.
  *
- * Bot collections (written by the voice bot, read here) are prefixed "test_" for the browser
- * test page's traffic, exactly as citizen_store and case_store name them. Dashboard
+ * Bot collections are read as the bot names them for real traffic; the browser test page's
+ * "test_" collections are never read, so the dashboard shows real calls only. Dashboard
  * collections are always prefixed "dash_" and are never written by the bot.
  */
 
@@ -58,15 +58,8 @@ export async function db(): Promise<Db> {
   return connection.getClient().db(env.dbName);
 }
 
-export function botCollectionName(name: BotCollection, dataEnv: DataEnv): string {
-  return dataEnv === "prod" ? name : `${dataEnv}_${name}`;
-}
-
-export async function botCol<T extends Document = Document>(
-  name: BotCollection,
-  dataEnv: DataEnv,
-): Promise<Collection<T>> {
-  return (await db()).collection<T>(botCollectionName(name, dataEnv));
+export async function botCol<T extends Document = Document>(name: BotCollection): Promise<Collection<T>> {
+  return (await db()).collection<T>(name);
 }
 
 export async function dashCol<T extends Document = Document>(

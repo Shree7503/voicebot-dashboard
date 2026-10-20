@@ -1,4 +1,4 @@
-import { dataEnv, route } from "@/lib/server/http";
+import { route } from "@/lib/server/http";
 import { CaseListQuery, queryObject } from "@/lib/server/schemas/api";
 import { intParam, parseRange } from "@/lib/server/schemas/query";
 import { listCases } from "@/lib/server/services/cases";
@@ -7,5 +7,5 @@ import { listCases } from "@/lib/server/services/cases";
 export const GET = route("reviewer", async ({ request }) => {
   const params = request.nextUrl.searchParams;
   const query = CaseListQuery.parse(queryObject(params));
-  return listCases(dataEnv(request), { ...query, range: parseRange(params), limit: intParam(params, "limit", 50, 1, 200) });
+  return listCases({ ...query, range: parseRange(params), limit: intParam(params, "limit", 50, 1, 200) });
 });

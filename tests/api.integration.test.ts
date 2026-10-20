@@ -48,7 +48,6 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
     process.env.CITIZEN_DB = DB_NAME;
     process.env.DASHBOARD_JWT_SECRET = randomBytes(32).toString("hex");
     process.env.DASHBOARD_EMAIL = EMAIL;
-    process.env.DASHBOARD_DATA_ENV = "prod";
     client = await new MongoClient(URI!).connect();
     db = client.db(DB_NAME);
 
@@ -86,6 +85,9 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
       { _id: "whatsapp:c", citizenId: "+919822054321", channel: "whatsapp", startedAt: at(10), endedAt: at(9), durationSec: 40, turnCounts: { citizen: 0, agent: 1, toolCalls: 0 }, toolsUsed: [], status: "pending" },
     ] as never[]);
     await db.collection("cases").insertOne({ _id: "E-100001", type: "emergency", status: "alerted", priority: "P1", priorityReason: "weapon involved", category: "weapon_attack", channel: "phone", interactionId: "phone:a", citizen: { phone: "+917020547519" }, location: { spoken: "सिन्नर बस स्टँड", english: "Sinnar bus stand" }, station: { name: "Sinnar PS", phone: "02551-000000" }, flags: { weapon: "yes" }, description: { mr: "चाकूने हल्ला, संपर्क 9822012345", asGiven: "" }, createdAt: at(59), updatedAt: at(59) } as never);
+    // the bot's browser test page: never shown
+    await db.collection("test_interactions").insertOne({ _id: "web:t1", citizenId: "+919999900000", channel: "web", startedAt: at(5), durationSec: 60, turnCounts: { citizen: 3 }, status: "summarised" } as never);
+    await db.collection("test_cases").insertOne({ _id: "TE-100001", type: "emergency", status: "new", priority: "P1", category: "fire", citizen: { phone: "+919999900000" }, createdAt: at(5) } as never);
     await db.collection("transcripts").insertOne({ _id: "phone:a", citizenId: "+917020547519", startedAt: at(60), turns: [
       { role: "assistant", text: "नमस्कार, पोलीस मदत." },
       { role: "user", text: "चाकूने हल्ला झाला, नंबर [number removed]" },
@@ -148,6 +150,15 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
     expect(everything).not.toMatch(/7020547519|9822012345|9822054321|Caller reported/);
   });
 
+  it("never shows the bot's test page traffic", async () => {
+    const overview = await call(routes.overview.GET, "control", "/api/stats/overview");
+    expect(overview.body.totals.calls).toBe(3);
+    const cases = await call(routes.cases.GET, "control", "/api/cases?env=test");
+    expect(cases.body.items.map((c: { id: string }) => c.id)).toEqual(["E-100001"]);
+    const calls = await call(routes.calls.GET, "control", "/api/calls");
+    expect(calls.body.items.map((c: { id: string }) => c.id)).not.toContain("web:t1");
+  });
+
   it("lists calls and cases masked, without transcripts or recipients", async () => {
     const calls = await call(routes.calls.GET, "control", "/api/calls?outcome=short");
     expect(calls.body.items.map((c: { id: string }) => c.id)).toEqual(["phone:b"]);
@@ -180,9 +191,9 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
     expect((await call(routes.transcript.GET, "control", "/api/calls/x/transcript", { params: { id: "whatsapp:c" } })).body.available).toBe(false);
     const actions = (await db.collection("dash_audit_log").find({}).toArray()).map((a) => `${a.action} ${a.target}`);
     expect(actions).toEqual(expect.arrayContaining([
-      "case.caller.reveal case:prod:E-100001",
-      "call.caller.reveal call:prod:phone:b",
-      "call.transcript.view call:prod:phone:a",
+      "case.caller.reveal case:E-100001",
+      "call.caller.reveal call:phone:b",
+      "call.transcript.view call:phone:a",
     ]));
   });
 

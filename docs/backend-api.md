@@ -46,8 +46,8 @@ sites get 403. The role checks inside the API stay in place so roles can be adde
 
 ## Endpoints
 
-Every stats endpoint and list takes `?env=prod|test` (test = browser test page traffic) and
-`?from=YYYY-MM-DD&to=YYYY-MM-DD` (India time, inclusive, default last 7 days, at most 92).
+Only real traffic is shown: the bot's browser test page writes to `test_` collections, which the
+dashboard never reads. Every stats endpoint and list takes `?from=YYYY-MM-DD&to=YYYY-MM-DD` (India time, inclusive, default last 7 days, at most 92).
 Errors are `{ error: { code, message, details? } }`; validation errors (422) carry
 `details: [{ path, message }]`.
 

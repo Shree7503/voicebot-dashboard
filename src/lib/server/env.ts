@@ -13,8 +13,6 @@ function required(name: string): string {
   return value;
 }
 
-export type DataEnv = "prod" | "test";
-
 export const env = {
   get mongoUri() {
     return required("MONGODB_URI");
@@ -22,10 +20,6 @@ export const env = {
   /** Same default as the bot's CITIZEN_DB / CASE_DB. */
   get dbName() {
     return process.env.CITIZEN_DB || "voicebot";
-  },
-  /** Which bot traffic the stats read by default; "test" is the browser test page. */
-  get defaultDataEnv(): DataEnv {
-    return process.env.DASHBOARD_DATA_ENV === "test" ? "test" : "prod";
   },
   /** Rough telephony + model cost per call minute, for the cost estimate. Unset: no estimate. */
   get costPerMinuteInr(): number | null {

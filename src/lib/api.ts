@@ -1,45 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-/**
- * Browser side of the dashboard API: which bot traffic to show (live phone calls or the
- * browser test page), JSON requests, and a hook for loading data into a page.
- */
-
-// ------------------------------------------------------------------ data source
-
-export type DataEnv = "prod" | "test";
-const STORAGE_KEY = "rakshak-data-env";
-const listeners = new Set<() => void>();
-
-function readDataEnv(): DataEnv {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === "test" ? "test" : "prod";
-  } catch {
-    return "prod";
-  }
-}
-
-export function setDataEnv(value: DataEnv) {
-  try {
-    localStorage.setItem(STORAGE_KEY, value);
-  } catch {
-    // private mode: the choice lasts until reload
-  }
-  listeners.forEach((listener) => listener());
-}
-
-export function useDataEnv(): DataEnv {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    readDataEnv,
-    () => "prod",
-  );
-}
+/** Browser side of the dashboard API: JSON requests and a hook for loading data into a page. */
 
 // ------------------------------------------------------------------ requests
 
@@ -53,16 +16,10 @@ export class ApiRequestError extends Error {
   }
 }
 
-function withEnv(path: string): string {
-  const url = new URL(path, window.location.origin);
-  url.searchParams.set("env", readDataEnv());
-  return url.pathname + url.search;
-}
-
 export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(withEnv(path), {
+    response = await fetch(path, {
       method: init?.method ?? "GET",
       headers: init?.body === undefined ? undefined : { "content-type": "application/json" },
       body: init?.body === undefined ? undefined : JSON.stringify(init.body),
@@ -85,9 +42,8 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
   return body as T;
 }
 
-/** Loads `path` (null: wait), again when the data source changes, and every `refreshMs` if given. */
+/** Loads `path` (null: wait), and again every `refreshMs` if given. */
 export function useApi<T>(path: string | null, refreshMs?: number) {
-  const dataEnv = useDataEnv();
   const [state, setState] = useState<{ data: T | null; error: string | null; errorCode: string | null; loading: boolean; key: string | null }>({
     data: null,
     error: null,
@@ -95,7 +51,7 @@ export function useApi<T>(path: string | null, refreshMs?: number) {
     loading: path !== null,
     key: null,
   });
-  const key = path === null ? null : `${dataEnv}|${path}`;
+  const key = path;
 
   const load = useCallback(async () => {
     if (!path) return;
@@ -119,7 +75,7 @@ export function useApi<T>(path: string | null, refreshMs?: number) {
     };
   }, [load, refreshMs]);
 
-  // data from another source or path is never shown as if it belonged to this one
+  // data from another path is never shown as if it belonged to this one
   const current = state.key === key;
   return {
     data: current ? state.data : null,
