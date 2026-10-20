@@ -15,6 +15,7 @@ export { ApiError };
 export interface Actor {
   id: string;
   name: string;
+  email: string;
   role: Role;
   ip: string | null;
 }

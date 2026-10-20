@@ -2,7 +2,7 @@ import "server-only";
 
 import { ApiError } from "../errors";
 import { verifyPassword } from "./password";
-import { authSettings, signSession, type AuthSettings } from "./session";
+import { authSettings, normaliseEmail, signSession, type AuthSettings } from "./session";
 
 // Failed sign-ins per IP address, per server process. Enough for one dashboard instance;
 // use a shared store if it is ever scaled out.
@@ -37,14 +37,17 @@ export function requireAuthSettings(): AuthSettings {
   return settings;
 }
 
-/** Checks the control room password; returns a session token. */
-export async function login(password: string, ip: string | null): Promise<{ token: string; settings: AuthSettings }> {
+/** Checks the control room email and password; returns a session token. */
+export async function login(email: string, password: string, ip: string | null): Promise<{ token: string; settings: AuthSettings }> {
   const settings = requireAuthSettings();
   const key = ip ?? "unknown";
   checkLimit(key);
-  if (!(await verifyPassword(password, settings.passwordHash))) {
+  // the password is always checked, so a wrong email takes as long as a wrong password
+  const passwordOk = await verifyPassword(password, settings.passwordHash);
+  if (!passwordOk || normaliseEmail(email) !== settings.email) {
     recordFailure(key);
-    throw new ApiError(401, "bad_password", "Wrong password. Try again.");
+    // never says which of the two was wrong
+    throw new ApiError(401, "bad_credentials", "That email and password don't match. Try again.");
   }
   failures.delete(key);
   return { token: await signSession(settings), settings };

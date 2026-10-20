@@ -82,6 +82,7 @@ describe("passwords", () => {
 
 describe("sessions", () => {
   const settingsFor = async (password: string, secret = SECRET): Promise<AuthSettings> => ({
+    email: "control@example.test",
     passwordHash: await hashPassword(password),
     secret,
     name: "Police control room",
@@ -90,13 +91,19 @@ describe("sessions", () => {
 
   it("issues a session for the control room account", async () => {
     const settings = await settingsFor("Rakshak control 2026");
-    expect(await verifySession(await signSession(settings), settings)).toEqual({ id: "control-room", name: "Police control room", role: "admin" });
+    expect(await verifySession(await signSession(settings), settings)).toEqual({ id: "control-room", name: "Police control room", email: "control@example.test", role: "admin" });
   });
 
   it("signs every session out when the password changes", async () => {
     const settings = await settingsFor("Rakshak control 2026");
     const token = await signSession(settings);
     expect(await verifySession(token, { ...settings, passwordHash: await hashPassword("New password 2027!") })).toBeNull();
+  });
+
+  it("signs every session out when the sign-in email changes", async () => {
+    const settings = await settingsFor("Rakshak control 2026");
+    const token = await signSession(settings);
+    expect(await verifySession(token, { ...settings, email: "new@example.test" })).toBeNull();
   });
 
   it("rejects a wrong secret, a tampered or expired token, and no token", async () => {
@@ -115,11 +122,17 @@ describe("sessions", () => {
   });
 
   it("reports missing settings by name", () => {
-    expect(authSettings({})).toEqual({ missing: "DASHBOARD_PASSWORD_HASH" });
-    expect(authSettings({ DASHBOARD_PASSWORD_HASH: "scrypt:1", DASHBOARD_JWT_SECRET: "short" })).toEqual({
+    expect(authSettings({})).toEqual({ missing: "DASHBOARD_EMAIL" });
+    expect(authSettings({ DASHBOARD_EMAIL: "not-an-email" })).toEqual({ missing: "DASHBOARD_EMAIL" });
+    expect(authSettings({ DASHBOARD_EMAIL: "a@b.test" })).toEqual({ missing: "DASHBOARD_PASSWORD_HASH" });
+    expect(authSettings({ DASHBOARD_EMAIL: "a@b.test", DASHBOARD_PASSWORD_HASH: "scrypt:1", DASHBOARD_JWT_SECRET: "short" })).toEqual({
       missing: "DASHBOARD_JWT_SECRET (at least 32 characters)",
     });
-    expect(authSettings({ DASHBOARD_PASSWORD_HASH: "h", DASHBOARD_JWT_SECRET: SECRET })).toMatchObject({ name: "Police control room", sessionHours: 8 });
+    expect(authSettings({ DASHBOARD_EMAIL: "  Control@Example.TEST ", DASHBOARD_PASSWORD_HASH: "h", DASHBOARD_JWT_SECRET: SECRET })).toMatchObject({
+      email: "control@example.test",
+      name: "Police control room",
+      sessionHours: 8,
+    });
   });
 });
 

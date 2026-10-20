@@ -29,11 +29,14 @@ also runs the API suite against a throwaway database.
 ## Sign-in
 
 One account, the **police control room**, which sees and does everything. There is no user
-database: the password's scrypt hash is `DASHBOARD_PASSWORD_HASH` in `.env`, set with
+database: the sign-in email is `DASHBOARD_EMAIL` and the password's scrypt hash is
+`DASHBOARD_PASSWORD_HASH`, both in `.env`; the hash is set with
 `npm run admin -- set-password` (16+ characters in any script, or 12+ mixing three of
-lowercase, capitals, digits and symbols). Changing it signs every open session out.
+lowercase, capitals, digits and symbols). Changing the email or the password signs every open
+session out. A wrong email and a wrong password get the same answer, so the reply never says which
+was wrong.
 
-`POST /api/auth/login {password}` sets an httpOnly, SameSite=Strict `rakshak_session` cookie
+`POST /api/auth/login {email, password}` sets an httpOnly, SameSite=Strict `rakshak_session` cookie
 (JWT, `DASHBOARD_SESSION_HOURS`, default 8). `POST /api/auth/logout`, `GET /api/auth/me`.
 Five wrong passwords from one IP lock it out for 15 minutes.
 

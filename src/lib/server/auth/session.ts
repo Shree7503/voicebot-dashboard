@@ -2,9 +2,10 @@ import { jwtVerify, SignJWT } from "jose";
 import type { Role } from "./roles";
 
 /**
- * One account: the police control room. Its password hash is DASHBOARD_PASSWORD_HASH in .env;
- * there is no user database. Sessions are HS256 JWTs in an httpOnly cookie, carrying a
- * fingerprint of the password hash, so changing the password signs every session out.
+ * One account: the police control room. Its sign-in email is DASHBOARD_EMAIL and its password
+ * hash DASHBOARD_PASSWORD_HASH, both in .env; there is no user database. Sessions are HS256 JWTs
+ * in an httpOnly cookie, carrying a fingerprint of the email and password hash, so changing
+ * either signs every session out.
  *
  * Free of database and "server-only" imports so proxy.ts can use it.
  */
@@ -17,11 +18,13 @@ const AUDIENCE = "rakshak-dashboard";
 export interface Account {
   id: string;
   name: string;
+  email: string;
   /** the single account sees and does everything; roles can be added later */
   role: Role;
 }
 
 export interface AuthSettings {
+  email: string;
   passwordHash: string;
   secret: string;
   name: string;
@@ -30,11 +33,14 @@ export interface AuthSettings {
 
 /** The settings from .env, or the name of the first one that is missing or unusable. */
 export function authSettings(source: Record<string, string | undefined> = process.env): AuthSettings | { missing: string } {
+  const email = normaliseEmail(source.DASHBOARD_EMAIL);
   const passwordHash = source.DASHBOARD_PASSWORD_HASH?.trim();
   const secret = source.DASHBOARD_JWT_SECRET?.trim();
+  if (!email || !email.includes("@")) return { missing: "DASHBOARD_EMAIL" };
   if (!passwordHash) return { missing: "DASHBOARD_PASSWORD_HASH" };
   if (!secret || secret.length < 32) return { missing: "DASHBOARD_JWT_SECRET (at least 32 characters)" };
   return {
+    email,
     passwordHash,
     secret,
     name: source.DASHBOARD_ACCOUNT_NAME?.trim() || "Police control room",
@@ -42,18 +48,23 @@ export function authSettings(source: Record<string, string | undefined> = proces
   };
 }
 
+/** Emails compare without case or surrounding spaces. */
+export function normaliseEmail(value: string | undefined | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 function key(secret: string): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-/** A short, non-reversible fingerprint of the password hash. */
-async function passwordVersion(passwordHash: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(passwordHash));
+/** A short, non-reversible fingerprint of the sign-in email and password hash. */
+async function passwordVersion(settings: AuthSettings): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${settings.email}\n${settings.passwordHash}`));
   return Buffer.from(digest).toString("base64url").slice(0, 22);
 }
 
 export async function signSession(settings: AuthSettings): Promise<string> {
-  return new SignJWT({ pv: await passwordVersion(settings.passwordHash) })
+  return new SignJWT({ pv: await passwordVersion(settings) })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(ACCOUNT_ID)
     .setIssuer(ISSUER)
@@ -72,8 +83,8 @@ export async function verifySession(token: string | undefined, settings: AuthSet
       audience: AUDIENCE,
       algorithms: ["HS256"],
     });
-    if (payload.sub !== ACCOUNT_ID || payload.pv !== (await passwordVersion(settings.passwordHash))) return null;
-    return { id: ACCOUNT_ID, name: settings.name, role: "admin" };
+    if (payload.sub !== ACCOUNT_ID || payload.pv !== (await passwordVersion(settings))) return null;
+    return { id: ACCOUNT_ID, name: settings.name, email: settings.email, role: "admin" };
   } catch {
     return null;
   }

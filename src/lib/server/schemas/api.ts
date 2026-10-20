@@ -7,6 +7,7 @@ import { OUTCOMES } from "../outcomes";
 const note = z.string().trim().max(500, "Keep the note under 500 characters.");
 
 export const LoginBody = z.strictObject({
+  email: z.string().trim().min(1, "Enter your email.").max(200),
   password: z.string().min(1, "Enter the password.").max(200),
 });
 

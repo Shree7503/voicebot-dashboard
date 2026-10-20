@@ -3,12 +3,12 @@
  * proxy.ts sends anyone without a valid session to /login, so pages need no auth state.
  */
 
-export async function signIn(password: string): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function signIn(email: string, password: string): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     const response = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     });
     if (response.ok) return { ok: true };
     const body = await response.json().catch(() => null);

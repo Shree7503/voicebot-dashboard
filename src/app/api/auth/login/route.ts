@@ -5,13 +5,13 @@ import { env } from "@/lib/server/env";
 import { clientIp, readJson, toResponse } from "@/lib/server/http";
 import { LoginBody } from "@/lib/server/schemas/api";
 
-/** { password } for the control room account. Sets the session cookie. */
+/** { email, password } for the control room account. Sets the session cookie. */
 export async function POST(request: NextRequest) {
   await connection();
   try {
-    const { password } = await readJson(request, LoginBody);
-    const { token, settings } = await login(password, clientIp(request));
-    const response = Response.json({ account: { name: settings.name }, expiresInHours: settings.sessionHours });
+    const { email, password } = await readJson(request, LoginBody);
+    const { token, settings } = await login(email, password, clientIp(request));
+    const response = Response.json({ account: { name: settings.name, email: settings.email }, expiresInHours: settings.sessionHours });
     response.headers.append("Set-Cookie", sessionCookie(token, settings.sessionHours * 3600, env.isProduction));
     return response;
   } catch (error) {

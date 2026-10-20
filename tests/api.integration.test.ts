@@ -19,6 +19,7 @@ vi.mock("next/server", async (importOriginal) => ({
 const URI = process.env.TEST_MONGODB_URI;
 const DB_NAME = `rakshak_test_${randomBytes(4).toString("hex")}`;
 const PASSWORD = "Control room test 2026";
+const EMAIL = "control@example.test";
 
 let client: MongoClient;
 let db: Db;
@@ -46,6 +47,7 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
     process.env.MONGODB_URI = URI;
     process.env.CITIZEN_DB = DB_NAME;
     process.env.DASHBOARD_JWT_SECRET = randomBytes(32).toString("hex");
+    process.env.DASHBOARD_EMAIL = EMAIL;
     process.env.DASHBOARD_DATA_ENV = "prod";
     client = await new MongoClient(URI!).connect();
     db = client.db(DB_NAME);
@@ -71,7 +73,7 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
     // the control room account, as `npm run admin -- set-password` sets it up
     const { hashPassword } = await import("@/lib/server/auth/password");
     process.env.DASHBOARD_PASSWORD_HASH = await hashPassword(PASSWORD);
-    const login = await call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { password: PASSWORD } });
+    const login = await call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { email: " Control@Example.test ", password: PASSWORD } });
     expect(login.status).toBe(200);
     expect(login.headers.get("set-cookie")).toMatch(/HttpOnly; SameSite=Strict/);
     cookie = login.headers.get("set-cookie")!.split(";")[0];
@@ -99,12 +101,17 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
   });
 
   it("rejects a wrong password, requests without a session, and locks out after 5 failures", async () => {
-    const wrong = () => call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { password: "Wrong password 1" } });
+    const wrong = () => call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { email: EMAIL, password: "Wrong password 1" } });
     expect((await wrong()).status).toBe(401);
+    // the right password with the wrong email fails the same way, without saying which was wrong
+    const wrongEmail = await call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { email: "someone@example.test", password: PASSWORD } });
+    expect(wrongEmail.status).toBe(401);
+    expect(wrongEmail.body.error.message).toBe("That email and password don't match. Try again.");
+    expect((await call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { password: PASSWORD } })).status).toBe(422);
     expect((await call(routes.overview.GET, null, "/api/stats/overview")).status).toBe(401);
-    expect((await call(routes.me.GET, "control", "/api/auth/me")).body.account).toEqual({ name: "Police control room", role: "admin" });
-    for (let i = 0; i < 4; i++) await wrong();
-    const locked = await call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { password: PASSWORD } });
+    expect((await call(routes.me.GET, "control", "/api/auth/me")).body.account).toEqual({ name: "Police control room", email: EMAIL, role: "admin" });
+    for (let i = 0; i < 3; i++) await wrong();
+    const locked = await call(routes.login.POST, null, "/api/auth/login", { method: "POST", body: { email: EMAIL, password: PASSWORD } });
     expect(locked.status).toBe(429);
     const { resetLoginLimiter } = await import("@/lib/server/auth/login");
     resetLoginLimiter();
