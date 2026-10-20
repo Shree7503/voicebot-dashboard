@@ -1,26 +1,66 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/*
+ * A calm palette for a stressful job: a soft off-white page with no glare, muted blue-green
+ * and slate instead of saturated colours, and urgency shown by a deep brick red rather than an
+ * alarm red. Every text colour reads at WCAG AA (4.5:1 or better) on every background here.
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: #f3f4f1;      /* soft grey-green page, no pure white glare */
+  --color-surface: #fbfbf9;         /* cards */
+  --color-surface-raised: #eceeea;  /* panels, table headers, inputs */
+  --color-surface-hover: #e6e9e4;
+  --color-border: #dde1db;
+  --color-border-light: #c9cfc7;
+  --color-foreground: #22303a;      /* slate, softer than black */
+  --color-foreground-muted: #4f5b64;
+  --color-foreground-dim: #5f6a72;
+  --color-accent: #2d6a6e;          /* deep teal: steady, not loud */
+  --color-accent-dim: #24585b;
+  --color-p1: #a63d3a;              /* brick red: clear without alarm */
+  --color-p1-bg: rgba(166, 61, 58, 0.09);
+  --color-p2: #8a5d0e;              /* ochre */
+  --color-p2-bg: rgba(138, 93, 14, 0.1);
+  --color-p3: #46627f;              /* slate blue */
+  --color-p3-bg: rgba(70, 98, 127, 0.1);
+  --color-success: #2f6b4d;         /* sage green */
+  --color-success-bg: rgba(47, 107, 77, 0.1);
+  --color-hoax: #86512f;            /* clay */
+  --color-hoax-bg: rgba(134, 81, 47, 0.1);
+  --font-sans: var(--font-inter);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-light) transparent;
+}
+
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+/* P1 pulse animation */
+@keyframes pulse-p1 {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-p1 {
+  animation: pulse-p1 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-p1 {
+    animation: none;
+  }
+}
+
+/* Transition for revealing phone numbers */
+.number-reveal {
+  transition: filter 0.2s ease;
 }
