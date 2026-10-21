@@ -57,14 +57,14 @@ export async function listCalls(query: CallQuery) {
     .limit(query.limit + 1)
     .toArray();
   const page = docs.slice(0, query.limit);
-  // emergencies reported in these calls, for the "Emergency" badge
+  // emergencies and lost-and-found reports made in these calls, for their badges
   const cases = await (await botCol("cases"))
-    .find({ interactionId: { $in: page.map((doc) => doc._id) } }, { projection: { _id: 1, interactionId: 1, priority: 1 } })
+    .find({ interactionId: { $in: page.map((doc) => doc._id) } }, { projection: { _id: 1, type: 1, interactionId: 1, priority: 1 } })
     .toArray();
   return {
     items: page.map((doc) => ({
       ...callRow(doc),
-      cases: cases.filter((c) => c.interactionId === doc._id).map((c) => ({ id: c._id, priority: c.priority })),
+      cases: cases.filter((c) => c.interactionId === doc._id).map((c) => ({ id: c._id, type: c.type, priority: c.priority })),
     })),
     nextBefore: docs.length > query.limit ? page[page.length - 1].startedAt.toISOString() : null,
   };
@@ -78,13 +78,13 @@ export async function getCall(id: string) {
   );
   if (!doc) throw new ApiError(404, "not_found", `There is no call ${id}.`);
   const cases = await (await botCol("cases"))
-    .find({ interactionId: id }, { projection: { _id: 1, priority: 1, category: 1, status: 1 } })
+    .find({ interactionId: id }, { projection: { _id: 1, type: 1, priority: 1, category: 1, status: 1 } })
     .toArray();
   return {
     ...callRow(doc),
     endedAt: doc.endedAt ?? null,
     summaryAttempts: doc.attempts ?? 0,
-    cases: cases.map((c) => ({ id: c._id, priority: c.priority, category: c.category, status: c.status })),
+    cases: cases.map((c) => ({ id: c._id, type: c.type, priority: c.priority, category: c.category, status: c.status })),
   };
 }
 

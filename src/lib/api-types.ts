@@ -60,7 +60,7 @@ export interface CallRow {
   clear: boolean | null;
   processing: string;
   summary: string | null;
-  cases: { id: string; priority: Priority; category?: string; status?: CaseStatus }[];
+  cases: { id: string; type: "emergency" | "lost_found" | string; priority: Priority; category?: string; status?: CaseStatus }[];
 }
 
 export interface CallDetail extends CallRow {
@@ -104,17 +104,25 @@ export interface Outcomes {
   emergencies: { total: number; byCategory: (Category & { count: number })[] };
 }
 
-export type LostFoundStatus = "open" | "suggested" | "reunited" | "closed" | "unknown";
+export type LostFoundKind = "lost" | "found";
 
 export interface LostFoundStats {
-  byStatus: Record<Exclude<LostFoundStatus, "unknown">, number>;
-  perDay: { day: string; reported: number; reunited: number }[];
+  reported: Record<LostFoundKind, number>;
+  open: Record<LostFoundKind, number>;
+  matchesToCheck: number;
+  strongMatchesToCheck: number;
+  resolved: number;
+  perDay: { day: string; lost: number; found: number }[];
 }
 
 export interface LostFoundItem {
   id: string;
-  status: LostFoundStatus;
+  kind: LostFoundKind | null;
+  item: string | null;
+  state: string | null;
+  caseStatus: CaseStatus | null;
   station: string | null;
-  reportedAt: string | null;
+  match: { with: string; score: number | null; strong: boolean } | null;
+  reportedAt: string;
   updatedAt: string | null;
 }

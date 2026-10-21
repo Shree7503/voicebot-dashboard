@@ -12,7 +12,7 @@ the voice bot's MongoDB (`CITIZEN_DB`, default `voicebot`) directly and keeps it
 | `calls` / `turns` tables with STT/retrieval/LLM/TTS ms | Gemini Live is speech-to-speech; `interactions` hold duration, turn counts, tools, summary | Stats use what exists. Stage latency, fallback rate, live call count and STT confidence are reported under `notRecorded` |
 | Outcome (completed / abandoned) | Not recorded | Derived (`src/lib/server/outcomes.ts`): `no_speech`, `short` (<2 caller turns or <25 s), `completed` |
 | Bot settings edited from the dashboard | — | Left out: the dashboard does not change the bot's configuration |
-| Lost and found | Not recorded yet (phase 3) | Figures and status only, from the bot's read-only API (`docs/bot-api-contract.md`) |
+| Lost and found as missing persons via a bot API | The bot records lost and found **items** as `lost_found` cases with suggested matches | Read straight from MongoDB, figures and status only (`docs/bot-api-contract.md`) |
 
 ## Setup
 
@@ -63,8 +63,8 @@ Errors are `{ error: { code, message, details? } }`; validation errors (422) car
 | GET | `/api/calls`, `/api/calls/:id` | `channel, outcome, language`; ids like `phone:abc` must be URL-encoded |
 | POST | `/api/cases/:id/caller`, `/api/calls/:id/caller` | the caller's full number; each reveal is written to the audit log |
 | GET | `/api/calls/:id/transcript` | the stored (already redacted) conversation; each view is written to the audit log |
-| GET | `/api/lost-found/stats` | counts per status, reported / reunited per day (from the bot's API) |
-| GET | `/api/lost-found` | `status`; reference, status, station and dates only (from the bot's API) |
+| GET | `/api/lost-found/stats` | reported (lost / found) per day, still open, matches to check, resolved |
+| GET | `/api/lost-found` | `kind` (lost / found), `open=true\|false`; reference, item type, status, match, station, dates only |
 | GET | `/api/audit` | `action, user, target, before` |
 
 ## Privacy
@@ -73,5 +73,5 @@ Errors are `{ error: { code, message, details? } }`; validation errors (422) car
   are separate requests, each written to the audit log. Alert recipients and incident phone lists
   are never returned.
 - Free text (descriptions, notes) has long digit runs removed, including Devanagari digits.
-- Lost and found: only reference, status, station, dates and counts pass through; anything else
-  the bot's API sends is dropped.
+- Lost and found: only reference, lost/found, item type, status, match, station, dates and counts
+  are read; item details and phone numbers are never fetched from the database.

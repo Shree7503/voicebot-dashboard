@@ -26,13 +26,6 @@ export const env = {
     const raw = process.env.COST_PER_MINUTE_INR;
     return raw ? Number(raw) : null;
   },
-  /** The bot's lost-and-found API (docs/bot-api-contract.md). Unset: the page says it isn't connected. */
-  get lostFoundApiUrl(): string | null {
-    return process.env.LOST_FOUND_API_URL?.replace(/\/+$/, "") || null;
-  },
-  get botApiToken(): string | null {
-    return process.env.BOT_API_TOKEN || null;
-  },
   get isProduction() {
     return process.env.NODE_ENV === "production";
   },

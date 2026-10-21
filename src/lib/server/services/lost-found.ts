@@ -1,82 +1,154 @@
 import "server-only";
 
-import { env } from "../env";
-import { ApiError } from "../errors";
+import type { Document } from "mongodb";
+import { botCol } from "../db";
+import { daysIn, IST_TZ, type DateRange } from "../schemas/query";
 
 /**
- * Lost and found, from the bot's read-only API (docs/bot-api-contract.md). The dashboard shows
- * figures and statuses only: whatever else the API sends (names, descriptions, phone numbers)
- * is dropped here and never reaches a browser.
+ * Lost and found, read from the bot's own records: `cases` with `type: "lost_found"`
+ * (references L-… for lost items, F-… for found ones) and the `match_suggested` events the
+ * bot writes when a lost and a found report look like the same item.
+ *
+ * Figures and status only. What identifies an item or a person (brand, colour, marks, IMEI,
+ * the phone number on the item, the description, the caller's number) is never read.
  */
 
-export const LOST_FOUND_STATUSES = ["open", "suggested", "reunited", "closed"] as const;
-export type LostFoundStatus = (typeof LOST_FOUND_STATUSES)[number];
+export const KINDS = ["lost", "found"] as const;
+export type Kind = (typeof KINDS)[number];
 
-const TIMEOUT_MS = 8000;
+const LOST_FOUND = { type: "lost_found" };
+const dayExpr = (field: string) => ({ $dateToString: { format: "%Y-%m-%d", date: field, timezone: IST_TZ } });
 
-async function call(path: string, params: URLSearchParams): Promise<unknown> {
-  const base = env.lostFoundApiUrl;
-  const token = env.botApiToken;
-  if (!base || !token) {
-    throw new ApiError(503, "not_connected", "Lost and found isn't connected yet: the bot's lost-and-found API is not set up.");
+/** A report still waiting: its own state is open and the case isn't closed. */
+const OPEN = { "lostFound.state": "open", status: { $ne: "closed" } };
+
+interface MatchEvent {
+  caseId: string;
+  at: Date;
+  data?: { lost?: string; found?: string; score?: number; strong?: boolean };
+}
+
+/** Suggested matches, one per lost/found pair (the bot logs each on both reports). */
+async function suggestedMatches(filter: Document = {}) {
+  const events = await (await botCol("case_events"))
+    .find({ kind: "match_suggested", ...filter }, { projection: { _id: 0, caseId: 1, at: 1, data: 1 } })
+    .toArray();
+  const pairs = new Map<string, { lost: string; found: string; score: number | null; strong: boolean; at: Date }>();
+  for (const event of events as unknown as MatchEvent[]) {
+    const { lost, found } = event.data ?? {};
+    if (!lost || !found) continue;
+    const key = `${lost}|${found}`;
+    const existing = pairs.get(key);
+    if (!existing || event.at > existing.at) {
+      pairs.set(key, {
+        lost,
+        found,
+        score: typeof event.data?.score === "number" ? event.data.score : null,
+        strong: event.data?.strong === true,
+        at: event.at,
+      });
+    }
   }
-  let response: Response;
-  try {
-    response = await fetch(`${base}${path}?${params}`, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      cache: "no-store",
-    });
-  } catch {
-    throw new ApiError(502, "bot_unreachable", "The bot's lost-and-found service is not answering. Try again in a minute.");
+  return [...pairs.values()];
+}
+
+export async function lostFoundStats(range: DateRange) {
+  const cases = await botCol("cases");
+  const [facet] = await cases
+    .aggregate<Document>([
+      { $match: LOST_FOUND },
+      {
+        $facet: {
+          perDay: [
+            { $match: { createdAt: { $gte: range.from, $lt: range.to } } },
+            { $group: { _id: { day: dayExpr("$createdAt"), kind: "$lostFound.kind" }, n: { $sum: 1 } } },
+          ],
+          // waiting now, whenever they were reported
+          open: [{ $match: OPEN }, { $group: { _id: "$lostFound.kind", n: { $sum: 1 } } }],
+          resolved: [{ $match: { $nor: [OPEN] } }, { $count: "n" }],
+        },
+      },
+    ])
+    .toArray();
+
+  const days = new Map(daysIn(range).map((day) => [day, { day, lost: 0, found: 0 }]));
+  for (const row of facet.perDay) {
+    const entry = days.get(row._id.day);
+    if (entry && (row._id.kind === "lost" || row._id.kind === "found")) entry[row._id.kind as Kind] += row.n;
   }
-  if (!response.ok) {
-    console.error(`[lost-found] ${path} answered ${response.status}`);
-    throw new ApiError(502, "bot_error", "The bot's lost-and-found service returned an error. Try again in a minute.");
-  }
-  return response.json();
-}
+  const open = { lost: 0, found: 0 };
+  for (const row of facet.open) if (row._id === "lost" || row._id === "found") open[row._id as Kind] = row.n;
 
-function status(value: unknown): LostFoundStatus | "unknown" {
-  return (LOST_FOUND_STATUSES as readonly unknown[]).includes(value) ? (value as LostFoundStatus) : "unknown";
-}
+  // matches between reports that are both still open: the ones someone should check
+  const openIds = new Set(
+    (await cases.find({ ...LOST_FOUND, ...OPEN }, { projection: { _id: 1 } }).toArray()).map((d) => String(d._id)),
+  );
+  const pending = (await suggestedMatches()).filter((m) => openIds.has(m.lost) && openIds.has(m.found));
 
-function text(value: unknown): string | null {
-  return typeof value === "string" && value ? value.slice(0, 200) : null;
-}
-
-function count(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
-}
-
-/** Counts per status, and reported / reunited per day. */
-export async function lostFoundStats(from: string, to: string) {
-  const body = (await call("/lost-found/stats", new URLSearchParams({ from, to }))) as {
-    byStatus?: Record<string, unknown>;
-    perDay?: { day?: unknown; reported?: unknown; reunited?: unknown }[];
-  };
+  const perDay = [...days.values()];
   return {
-    byStatus: Object.fromEntries(LOST_FOUND_STATUSES.map((s) => [s, count(body.byStatus?.[s])])) as Record<LostFoundStatus, number>,
-    perDay: (body.perDay ?? [])
-      .filter((d) => typeof d.day === "string")
-      .map((d) => ({ day: String(d.day), reported: count(d.reported), reunited: count(d.reunited) })),
+    range: { from: range.fromDay, to: range.toDay, timezone: IST_TZ },
+    reported: {
+      lost: perDay.reduce((sum, d) => sum + d.lost, 0),
+      found: perDay.reduce((sum, d) => sum + d.found, 0),
+    },
+    open,
+    matchesToCheck: pending.length,
+    strongMatchesToCheck: pending.filter((m) => m.strong).length,
+    resolved: facet.resolved[0]?.n ?? 0,
+    perDay,
   };
 }
 
-/** Reports as reference, status, station and dates: nothing else. */
-export async function lostFoundList(query: { status?: LostFoundStatus; from: string; to: string; limit: number; before?: string }) {
-  const params = new URLSearchParams({ from: query.from, to: query.to, limit: String(query.limit) });
-  if (query.status) params.set("status", query.status);
-  if (query.before) params.set("before", query.before);
-  const body = (await call("/lost-found", params)) as { items?: Record<string, unknown>[]; nextBefore?: unknown };
+export interface LostFoundQuery {
+  range: DateRange;
+  kind?: Kind;
+  open?: boolean;
+  before?: Date;
+  limit: number;
+}
+
+/** Reports as reference, lost or found, item type, status, match, station and dates. */
+export async function lostFoundList(query: LostFoundQuery) {
+  const cases = await botCol("cases");
+  const filter: Document = {
+    ...LOST_FOUND,
+    createdAt: { $gte: query.range.from, $lt: query.before && query.before < query.range.to ? query.before : query.range.to },
+  };
+  if (query.kind) filter["lostFound.kind"] = query.kind;
+  if (query.open !== undefined) Object.assign(filter, query.open ? OPEN : { $nor: [OPEN] });
+
+  const docs = await cases
+    .find(filter, {
+      // an allow-list: nothing that identifies the item or the caller is read at all
+      projection: { _id: 1, status: 1, createdAt: 1, updatedAt: 1, category: 1, "station.name": 1, "lostFound.kind": 1, "lostFound.state": 1, "lostFound.group": 1 },
+    })
+    .sort({ createdAt: -1 })
+    .limit(query.limit + 1)
+    .toArray();
+  const page = docs.slice(0, query.limit);
+  const ids = page.map((d) => String(d._id));
+  const matches = await suggestedMatches({ caseId: { $in: ids } });
+
   return {
-    items: (body.items ?? []).map((item) => ({
-      id: text(item.id) ?? "?",
-      status: status(item.status),
-      station: text(typeof item.station === "object" && item.station ? (item.station as { name?: unknown }).name : item.station),
-      reportedAt: text(item.reportedAt),
-      updatedAt: text(item.updatedAt),
-    })),
-    nextBefore: text(body.nextBefore),
+    items: page.map((doc) => {
+      const id = String(doc._id);
+      const kind: Kind | null = doc.lostFound?.kind === "lost" || doc.lostFound?.kind === "found" ? doc.lostFound.kind : null;
+      const best = matches
+        .filter((m) => m.lost === id || m.found === id)
+        .sort((a, b) => Number(b.strong) - Number(a.strong) || (b.score ?? 0) - (a.score ?? 0))[0];
+      return {
+        id,
+        kind,
+        item: doc.lostFound?.group ?? doc.category ?? null,
+        state: doc.lostFound?.state ?? null,
+        caseStatus: doc.status ?? null,
+        station: doc.station?.name ?? null,
+        match: best ? { with: best.lost === id ? best.found : best.lost, score: best.score, strong: best.strong } : null,
+        reportedAt: doc.createdAt,
+        updatedAt: doc.updatedAt ?? null,
+      };
+    }),
+    nextBefore: docs.length > query.limit ? page[page.length - 1].createdAt.toISOString() : null,
   };
 }

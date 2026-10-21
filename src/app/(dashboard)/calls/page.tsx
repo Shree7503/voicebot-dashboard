@@ -101,11 +101,17 @@ export default function CallsPage() {
                   {c.summary ?? (c.processing === "summarised" ? "No summary" : c.processing === "failed" ? "Summary failed; the bot retries it" : "Summary not ready yet")}
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                  {c.cases.map((x) => (
-                    <span key={x.id} className="text-[10px] bg-p1/10 text-p1 font-bold px-1.5 py-0.5 rounded">
-                      {x.priority} {x.id}
-                    </span>
-                  ))}
+                  {c.cases.map((x) =>
+                    x.type === "lost_found" ? (
+                      <span key={x.id} className="text-[10px] bg-p3-bg text-p3 font-bold px-1.5 py-0.5 rounded">
+                        Lost and found {x.id}
+                      </span>
+                    ) : (
+                      <span key={x.id} className="text-[10px] bg-p1/10 text-p1 font-bold px-1.5 py-0.5 rounded">
+                        {x.priority} {x.id}
+                      </span>
+                    ),
+                  )}
                   {c.topics.map((t) => (
                     <span key={t} className="text-[10px] bg-surface-raised text-foreground-dim px-1.5 py-0.5 rounded">
                       {t}

@@ -1,69 +1,39 @@
-# Bot API the dashboard needs: lost and found (read only)
+# What the dashboard reads from the bot
 
-One small API on the bot side, called by the dashboard's **server** (never from a browser).
-The dashboard shows lost and found as **figures and status only**: no names, descriptions,
-photos or phone numbers, and no actions. The bot records reports and changes their status.
+No API is needed from the bot. The dashboard reads the bot's MongoDB (`voicebot`) directly, and
+only real traffic: the browser test page's `test_` collections are never read.
 
-Bot settings are not part of this: the dashboard does not change the bot's configuration.
+This file lists the fields the dashboard relies on, so a change on the bot side doesn't break it
+silently. If any of these are renamed or removed, tell the dashboard side first.
 
-## Conventions
+## Lost and found
 
-- **Auth:** every request carries `Authorization: Bearer <BOT_API_TOKEN>` (a long random secret
-  in both `.env` files). Reject anything else with 401. Serve over HTTPS, or bind to
-  `127.0.0.1` if the dashboard runs on the same server.
-- **Read only:** `GET` requests only. There is no endpoint that changes anything.
-- **JSON** out. Times are ISO 8601 in UTC; days (`from`, `to`, `day`) are `YYYY-MM-DD` in
-  India time.
-- **Errors:** `{"error": {"code": "...", "message": "..."}}` with a matching HTTP status.
-- **Lists** are newest first, with `?limit=` (max 200) and `?before=<ISO time>` for the next
-  page; the response has `"nextBefore"` (null on the last page).
+Shown as **figures and status only**. Item details (brand, colour, marks, IMEI, the phone number
+on the item, the description) and the caller's number are never read.
 
-## Statuses
+From `cases` where `type: "lost_found"`:
 
-| Status | Meaning |
+| Field | Used for |
 | --- | --- |
-| `open` | Reported, not found yet |
-| `suggested` | A possible match is waiting to be checked |
-| `reunited` | Found and returned |
-| `closed` | Closed for another reason |
+| `_id` (`L-…` lost, `F-…` found) | Reference |
+| `lostFound.kind` (`lost` / `found`) | Lost or found |
+| `lostFound.group` (`phone`, `wallet`, `jewellery`, `footwear`, `other`…), else `category` | Item type |
+| `lostFound.state` (`open`, then any other value such as `returned`) | Status: anything other than `open` counts as resolved |
+| `status` (`closed`) | A closed case counts as resolved |
+| `station.name` | Station |
+| `createdAt`, `updatedAt` | Dates, per-day counts |
 
-## `GET /lost-found/stats?from=YYYY-MM-DD&to=YYYY-MM-DD`
+From `case_events` where `kind: "match_suggested"`: `data.lost`, `data.found`, `data.score`,
+`data.strong`. A match is "to check" while both reports are still open.
 
-Counts for the overview cards and the Lost and found page.
+## Emergencies and calls
 
-```json
-{
-  "byStatus": { "open": 5, "suggested": 2, "reunited": 11, "closed": 1 },
-  "perDay": [{ "day": "2026-10-20", "reported": 3, "reunited": 1 }]
-}
-```
+`cases` (`type: "emergency"`), `case_events`, `alerts`, `incidents`, `interactions`,
+`transcripts`, as written by `case_store` and `citizen_store` (schemaVersion 1).
 
-- `byStatus`: reports created in the date range, by their status now.
-- `perDay`: reports created, and reports reunited, on each day of the range.
+## Wanted later
 
-## `GET /lost-found?status=&station=&from=&to=&limit=&before=`
-
-The status list.
-
-```json
-{
-  "items": [
-    {
-      "id": "L-100001",
-      "status": "open",
-      "station": "Sinnar Police Station",
-      "reportedAt": "2026-10-20T06:10:00Z",
-      "updatedAt": "2026-10-20T07:40:00Z"
-    }
-  ],
-  "nextBefore": null
-}
-```
-
-Each item is reference, status, station and dates only. Even if more is sent, the dashboard
-keeps only these fields and drops the rest before anything reaches a browser.
-
-## In the dashboard's `.env`
-
-`LOST_FOUND_API_URL` (the API's base URL) and `BOT_API_TOKEN`. While either is empty, the Lost
-and found page says it isn't connected yet.
+- **Cost per call:** a `cost.inr` field on each `interactions` document (see the backend changes
+  document). Until then "Cost today" uses `COST_PER_MINUTE_INR` from the dashboard's `.env`.
+- **A state for returned items:** when an item goes back to its owner, set `lostFound.state` to
+  `returned` (any value other than `open` already counts as resolved).

@@ -43,16 +43,26 @@ export default function CallDetailPage(props: PageProps) {
                 {call.summary ?? (call.processing === "summarised" ? "No summary for this call" : call.processing === "failed" ? "The summary failed; the bot retries it" : "The summary is not ready yet")}
               </h1>
             </div>
-            {call.cases.map((c) => (
-              <Link
-                key={c.id}
-                href={`/emergencies/${encodeURIComponent(c.id)}`}
-                className="inline-flex items-center gap-2 rounded-xl border border-p1/30 bg-p1-bg px-4 py-2 text-xs font-medium text-p1 hover:border-p1 transition-colors self-start shrink-0"
-              >
-                <span className="flex h-2 w-2 rounded-full bg-p1" />
-                Emergency {c.id} ({c.priority}) →
-              </Link>
-            ))}
+            {call.cases.map((c) =>
+              c.type === "lost_found" ? (
+                <Link
+                  key={c.id}
+                  href="/lost-found"
+                  className="inline-flex items-center gap-2 rounded-xl border border-p3/30 bg-p3-bg px-4 py-2 text-xs font-medium text-p3 hover:border-p3 transition-colors self-start shrink-0"
+                >
+                  Lost and found report {c.id} →
+                </Link>
+              ) : (
+                <Link
+                  key={c.id}
+                  href={`/emergencies/${encodeURIComponent(c.id)}`}
+                  className="inline-flex items-center gap-2 rounded-xl border border-p1/30 bg-p1-bg px-4 py-2 text-xs font-medium text-p1 hover:border-p1 transition-colors self-start shrink-0"
+                >
+                  <span className="flex h-2 w-2 rounded-full bg-p1" />
+                  Emergency {c.id} ({c.priority}) →
+                </Link>
+              ),
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-4 rounded-xl border border-border bg-surface mb-8">

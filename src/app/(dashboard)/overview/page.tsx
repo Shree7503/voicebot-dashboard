@@ -49,8 +49,9 @@ export default function OverviewPage() {
   const languages = useApi<Languages>(`/api/stats/languages?${WEEK()}`, 60000);
   const recent = useApi<Page<CaseSummary>>(`/api/cases?${LAST_90_DAYS()}&limit=50`, 30000);
   const lostFound = useApi<LostFoundStats>(`/api/lost-found/stats?${WEEK()}`, 60000);
-  const lfToday = lostFound.data?.perDay.find((d) => d.day === istDay(0))?.reported ?? 0;
-  const lfWeek = lostFound.data?.perDay.reduce((sum, d) => sum + d.reported, 0) ?? 0;
+  const lfDay = lostFound.data?.perDay.find((d) => d.day === istDay(0));
+  const lfToday = (lfDay?.lost ?? 0) + (lfDay?.found ?? 0);
+  const lfWeek = lostFound.data ? lostFound.data.reported.lost + lostFound.data.reported.found : 0;
 
   const o = overview.data;
   const today = o?.perDay[o.perDay.length - 1];
@@ -98,7 +99,7 @@ export default function OverviewPage() {
           {lostFound.data ? (
             <StatCard label="Lost and found reported today" today={lfToday} week={lfWeek} />
           ) : (
-            <StatCard label="Lost and found today" today="—" note={lostFound.errorCode === "not_connected" ? "Comes with phase 3" : lostFound.error ? "Couldn't load" : "Loading…"} />
+            <StatCard label="Lost and found today" today="—" note={lostFound.error ? "Couldn't load" : "Loading…"} />
           )}
           <StatCard
             label="Cost today"

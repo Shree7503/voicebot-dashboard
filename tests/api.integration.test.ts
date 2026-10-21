@@ -9,7 +9,7 @@
 import { randomBytes } from "node:crypto";
 import { MongoClient, type Db } from "mongodb";
 import { NextRequest } from "next/server";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/server")>()),
@@ -209,50 +209,62 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
     expect(audit).toMatchObject({ userName: "Police control room", before: { status: "alerted" }, after: { status: "acknowledged" } });
   });
 
-  describe("lost and found (bot API stubbed)", () => {
-    afterEach(() => {
-      vi.unstubAllGlobals();
-      delete process.env.LOST_FOUND_API_URL;
-      delete process.env.BOT_API_TOKEN;
-    });
-
-    it("says it isn't connected while the bot's API is not set up", async () => {
-      const result = await call(routes.lostFoundStats.GET, "control", "/api/lost-found/stats");
-      expect(result.status).toBe(503);
-      expect(result.body.error.code).toBe("not_connected");
-    });
-
-    it("passes on figures and statuses only, never names or numbers", async () => {
-      process.env.LOST_FOUND_API_URL = "http://bot.test/";
-      process.env.BOT_API_TOKEN = "t".repeat(40);
-      const seen: { url: string; auth: string | null }[] = [];
-      vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-        seen.push({ url, auth: new Headers(init.headers).get("authorization") });
-        const body = url.includes("/stats")
-          ? { byStatus: { open: 5, suggested: 2, reunited: 11, closed: 1, bogus: 9 }, perDay: [{ day: "2026-10-20", reported: 3, reunited: 1 }] }
-          : { items: [{ id: "L-100001", status: "open", station: { name: "Sinnar Police Station", phone: "02551" },
-              reportedAt: "2026-10-20T06:10:00Z", updatedAt: "2026-10-20T07:40:00Z",
-              person: { name: "Rohit", age: 14 }, reporter: { phone: "+917020547519" } }], nextBefore: null };
-        return Response.json(body);
+  describe("lost and found", () => {
+    beforeAll(async () => {
+      const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60000);
+      const item = (id: string, kind: string, group: string, state: string, minutesAgo: number, status = "alerted") => ({
+        _id: id, type: "lost_found", status, priority: "P4", category: group, interactionId: `phone:${id}`,
+        citizen: { phone: "+917020547519" }, station: { name: "Sinnar Police Station", phone: "02551-220033", officer: "PI Patil" },
+        description: { mr: "काळा फोन", asGiven: "black phone" },
+        lostFound: { kind, state, group, item: "Redmi Note", colour: "black", marks: "cracked screen", imei: "861234567890123", itemPhone: "+919822000000" },
+        createdAt: at(minutesAgo), updatedAt: at(minutesAgo),
       });
-
-      const stats = await call(routes.lostFoundStats.GET, "control", "/api/lost-found/stats?from=2026-10-14&to=2026-10-20");
-      expect(stats.body).toEqual({ byStatus: { open: 5, suggested: 2, reunited: 11, closed: 1 }, perDay: [{ day: "2026-10-20", reported: 3, reunited: 1 }] });
-      expect(seen[0]).toEqual({ url: "http://bot.test/lost-found/stats?from=2026-10-14&to=2026-10-20", auth: `Bearer ${"t".repeat(40)}` });
-
-      const list = await call(routes.lostFound.GET, "control", "/api/lost-found?status=open");
-      expect(list.body.items).toEqual([{ id: "L-100001", status: "open", station: "Sinnar Police Station", reportedAt: "2026-10-20T06:10:00Z", updatedAt: "2026-10-20T07:40:00Z" }]);
-      expect(JSON.stringify(list.body)).not.toMatch(/Rohit|7020547519|02551/);
-      expect(seen[1].url).toContain("status=open");
+      await db.collection("cases").insertMany([
+        item("L-100001", "lost", "phone", "open", 30),
+        item("F-100001", "found", "phone", "open", 20),
+        item("L-100002", "lost", "wallet", "returned", 60 * 24 * 3),
+        item("F-100002", "found", "jewellery", "open", 10, "closed"),
+      ] as never[]);
+      const match = { kind: "match_suggested", by: "system", data: { lost: "L-100001", found: "F-100001", score: 97, strong: true } };
+      await db.collection("case_events").insertMany([
+        { caseId: "L-100001", at: at(19), ...match },
+        { caseId: "F-100001", at: at(19), ...match },
+      ] as never[]);
+      // the test page's lost and found: never shown
+      await db.collection("test_cases").insertOne({ ...item("TL-100001", "lost", "phone", "open", 5) } as never);
     });
 
-    it("reports a bot outage without exposing its details", async () => {
-      process.env.LOST_FOUND_API_URL = "http://bot.test";
-      process.env.BOT_API_TOKEN = "t".repeat(40);
-      vi.stubGlobal("fetch", async () => new Response("stack trace with secrets", { status: 500 }));
-      const result = await call(routes.lostFound.GET, "control", "/api/lost-found");
-      expect(result.status).toBe(502);
-      expect(JSON.stringify(result.body)).not.toContain("secrets");
+    it("counts reports, open items and matches to check", async () => {
+      const stats = await call(routes.lostFoundStats.GET, "control", "/api/lost-found/stats");
+      expect(stats.body).toMatchObject({
+        reported: { lost: 2, found: 2 },
+        open: { lost: 1, found: 1 },
+        matchesToCheck: 1,
+        strongMatchesToCheck: 1,
+        resolved: 2,
+      });
+      expect(stats.body.perDay).toHaveLength(7);
+    });
+
+    it("lists status and matches, never item details or numbers", async () => {
+      const open = await call(routes.lostFound.GET, "control", "/api/lost-found?open=true");
+      expect(open.body.items.map((r: { id: string }) => r.id)).toEqual(["F-100001", "L-100001"]);
+      expect(open.body.items[1]).toEqual({
+        id: "L-100001", kind: "lost", item: "phone", state: "open", caseStatus: "alerted", station: "Sinnar Police Station",
+        match: { with: "F-100001", score: 97, strong: true }, reportedAt: expect.any(String), updatedAt: expect.any(String),
+      });
+      const found = await call(routes.lostFound.GET, "control", "/api/lost-found?kind=found");
+      expect(found.body.items.map((r: { id: string }) => r.id)).toEqual(["F-100002", "F-100001"]);
+      const all = await call(routes.lostFound.GET, "control", "/api/lost-found");
+      expect(all.body.items).toHaveLength(4);
+      expect(JSON.stringify([open.body, found.body, all.body])).not.toMatch(/Redmi|black|cracked|8612345|9822000000|7020547519|02551|Patil|काळा|TL-100001/);
+    });
+
+    it("keeps lost and found out of the emergency figures and lists", async () => {
+      const cases = await call(routes.cases.GET, "control", "/api/cases");
+      expect(cases.body.items.map((c: { id: string }) => c.id)).toEqual(["E-100001"]);
+      const overview = await call(routes.overview.GET, "control", "/api/stats/overview");
+      expect(overview.body.totals.emergencies).toBe(1);
     });
   });
 });
