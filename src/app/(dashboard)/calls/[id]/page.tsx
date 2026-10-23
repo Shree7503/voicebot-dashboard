@@ -47,7 +47,7 @@ export default function CallDetailPage(props: PageProps) {
               c.type === "lost_found" ? (
                 <Link
                   key={c.id}
-                  href="/lost-found"
+                  href={`/lost-found/${encodeURIComponent(c.id)}`}
                   className="inline-flex items-center gap-2 rounded-xl border border-p3/30 bg-p3-bg px-4 py-2 text-xs font-medium text-p3 hover:border-p3 transition-colors self-start shrink-0"
                 >
                   Lost and found report {c.id} →

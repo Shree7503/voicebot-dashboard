@@ -66,6 +66,9 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
       caseCaller: await import("@/app/api/cases/[id]/caller/route"),
       lostFound: await import("@/app/api/lost-found/route"),
       lostFoundStats: await import("@/app/api/lost-found/stats/route"),
+      lostFoundOne: await import("@/app/api/lost-found/[id]/route"),
+      lostFoundClose: await import("@/app/api/lost-found/[id]/close/route"),
+      lostFoundCaller: await import("@/app/api/lost-found/[id]/caller/route"),
       audit: await import("@/app/api/audit/route"),
     } as unknown as Record<string, Record<string, Handler>>;
 
@@ -258,6 +261,47 @@ describe.skipIf(!URI)("admin API (MongoDB)", () => {
       const all = await call(routes.lostFound.GET, "control", "/api/lost-found");
       expect(all.body.items).toHaveLength(4);
       expect(JSON.stringify([open.body, found.body, all.body])).not.toMatch(/Redmi|black|cracked|8612345|9822000000|7020547519|02551|Patil|काळा|TL-100001/);
+    });
+
+    it("shows one report's details and its call, but not the number or IMEI on the item", async () => {
+      const one = await call(routes.lostFoundOne.GET, "control", "/api/lost-found/L-100001", { params: { id: "L-100001" } });
+      expect(one.body).toMatchObject({
+        id: "L-100001", kind: "lost", open: true, caller: "+91 ••••••7519",
+        item: { name: "Redmi Note", group: "phone", colour: "black", marks: "cracked screen" },
+        station: { name: "Sinnar Police Station", phone: "02551-220033", officer: "PI Patil" },
+        matches: [{ id: "F-100001", score: 97, strong: true, open: true }],
+        call: null,
+      });
+      expect(one.body.timeline.map((t: { text: string }) => t.text)).toContain("Possible match suggested: L-100001 and F-100001 (score 97, strong)");
+      expect(JSON.stringify(one.body)).not.toMatch(/861234567890123|9822000000|7020547519/);
+      expect((await call(routes.lostFoundOne.GET, "control", "/api/lost-found/E-100001", { params: { id: "E-100001" } })).status).toBe(404);
+    });
+
+    it("reveals the caller's number on request and audits it", async () => {
+      const number = await call(routes.lostFoundCaller.POST, "control", "/api/lost-found/L-100001/caller", { method: "POST", params: { id: "L-100001" } });
+      expect(number.body).toEqual({ phone: "+917020547519" });
+      expect(await db.collection("dash_audit_log").findOne({ action: "lost_found.caller.reveal", target: "case:L-100001" })).not.toBeNull();
+    });
+
+    it("closes a report as returned, with its match, and records who did it", async () => {
+      const bad = await call(routes.lostFoundClose.POST, "control", "/api/lost-found/L-100001/close", { method: "POST", params: { id: "L-100001" }, body: { reason: "returned", alsoClose: "F-100002" } });
+      expect(bad.status).toBe(422); // not a suggested match
+
+      const closed = await call(routes.lostFoundClose.POST, "control", "/api/lost-found/L-100001/close", {
+        method: "POST", params: { id: "L-100001" }, body: { reason: "returned", note: "Owner collected it", alsoClose: "F-100001" },
+      });
+      expect(closed.status).toBe(200);
+      expect(closed.body).toMatchObject({ open: false, state: "returned", caseStatus: "closed", closed: { by: "Police control room", reason: "returned", note: "Owner collected it" } });
+      const found = await db.collection("cases").findOne({ _id: "F-100001" } as never);
+      expect(found).toMatchObject({ status: "closed", lostFound: { state: "returned" } });
+      expect(await db.collection("case_events").countDocuments({ kind: "closed", caseId: { $in: ["L-100001", "F-100001"] }, by: "Police control room" })).toBe(2);
+      expect(await db.collection("dash_audit_log").countDocuments({ action: "lost_found.close" })).toBe(2);
+
+      const again = await call(routes.lostFoundClose.POST, "control", "/api/lost-found/L-100001/close", { method: "POST", params: { id: "L-100001" }, body: {} });
+      expect(again.status).toBe(409);
+
+      const stats = await call(routes.lostFoundStats.GET, "control", "/api/lost-found/stats");
+      expect(stats.body).toMatchObject({ open: { lost: 0, found: 0 }, matchesToCheck: 0, resolved: 4 });
     });
 
     it("keeps lost and found out of the emergency figures and lists", async () => {

@@ -1,44 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { dateTime, istDay, LAST_90_DAYS, timeAgo, useApi, useNow } from "@/lib/api";
 import type { LostFoundItem, LostFoundKind, LostFoundStats, Page } from "@/lib/api-types";
 import { Empty, ErrorBox, Loading } from "@/components/ui";
+import { CloseLostFound } from "@/components/lost-found-close";
+import { itemLabel, statusOf } from "./labels";
 
 const WEEK = () => `from=${istDay(6)}&to=${istDay(0)}`;
 
-/** Item types the bot records (lostFound.group), in English and Marathi. */
-const ITEMS: Record<string, string> = {
-  phone: "Phone · फोन",
-  wallet: "Wallet · पाकीट",
-  jewellery: "Jewellery · दागिने",
-  footwear: "Footwear · पादत्राणे",
-  bag: "Bag · बॅग",
-  documents: "Documents · कागदपत्रे",
-  vehicle: "Vehicle · वाहन",
-  other: "Other · इतर",
-};
-
-function itemLabel(item: string | null): string {
-  if (!item) return "Not given";
-  return ITEMS[item] ?? item.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
-}
-
-function statusOf(r: LostFoundItem): { label: string; style: string } {
-  if (r.caseStatus === "closed") return { label: "Closed", style: "bg-surface-raised text-foreground-dim" };
-  if (r.state && r.state !== "open") {
-    return { label: r.state.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), style: "bg-success/15 text-success" };
-  }
-  if (r.match) return { label: "Match to check", style: "bg-p2-bg text-p2" };
-  return { label: "Open", style: "bg-accent/10 text-accent" };
-}
-
 /**
- * Lost and found as figures and statuses, read from the bot's own records. Nothing that
- * identifies an item or a person (brand, colour, marks, IMEI, phone numbers, description) is
- * fetched, and there are no actions: the bot and the station handle the reports.
+ * Lost and found: figures, and a list by status. Open a report for its item details, its call
+ * and its timeline; close it from either place once the item is back with its owner.
  */
 export default function LostFoundPage() {
+  const router = useRouter();
   const now = useNow(60000);
   const [kind, setKind] = useState<"all" | LostFoundKind>("all");
   const [openOnly, setOpenOnly] = useState(true);
@@ -54,7 +32,7 @@ export default function LostFoundPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-foreground">Lost and found</h1>
         <p className="text-sm text-foreground-muted mt-0.5">
-          Lost and found items reported to the bot: figures and status. Item details stay with the bot and the station.
+          Lost and found items reported to the bot. Open a report for its details and the call; close it once the item is back with its owner.
         </p>
       </div>
 
@@ -111,7 +89,7 @@ export default function LostFoundPage() {
 
         {list.data && list.data.items.length > 0 && (
           <div className="rounded-xl border border-border bg-surface overflow-hidden">
-            <div className="hidden md:grid grid-cols-[110px_70px_1fr_130px_150px_1fr_120px] gap-4 px-5 py-3 border-b border-border text-[11px] font-medium text-foreground-dim uppercase tracking-wider bg-surface-raised/40">
+            <div className="hidden lg:grid lg:grid-cols-[96px_56px_minmax(0,1fr)_116px_minmax(0,1.3fr)_minmax(0,1fr)_76px_64px] gap-4 px-5 py-3 border-b border-border text-[11px] font-medium text-foreground-dim uppercase tracking-wider bg-surface-raised/40">
               <span>Reference</span>
               <span>Report</span>
               <span>Item</span>
@@ -119,21 +97,27 @@ export default function LostFoundPage() {
               <span>Match</span>
               <span>Station</span>
               <span>Reported</span>
+              <span className="sr-only">Actions</span>
             </div>
             {list.data.items.map((r, i, all) => {
               const status = statusOf(r);
+              const href = `/lost-found/${encodeURIComponent(r.id)}`;
+              const open = r.state === "open" && r.caseStatus !== "closed";
               return (
                 <div
                   key={r.id}
-                  className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 md:grid md:grid-cols-[110px_70px_1fr_130px_150px_1fr_120px] px-5 py-3 ${
+                  onClick={() => router.push(href)}
+                  className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 lg:grid lg:grid-cols-[96px_56px_minmax(0,1fr)_116px_minmax(0,1.3fr)_minmax(0,1fr)_76px_64px] px-5 py-3 cursor-pointer hover:bg-surface-hover transition-colors ${
                     i < all.length - 1 ? "border-b border-border" : ""
                   }`}
                 >
-                  <span className="text-xs font-mono text-foreground">{r.id}</span>
+                  <Link href={href} onClick={(e) => e.stopPropagation()} className="text-xs font-mono text-accent hover:underline">
+                    {r.id}
+                  </Link>
                   <span className={`text-xs font-semibold ${r.kind === "lost" ? "text-p3" : "text-success"}`}>
                     {r.kind === "lost" ? "Lost" : r.kind === "found" ? "Found" : "—"}
                   </span>
-                  <span className="text-sm text-foreground">{itemLabel(r.item)}</span>
+                  <span className="text-sm text-foreground truncate">{itemLabel(r.item, false)}</span>
                   <span>
                     <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${status.style}`}>{status.label}</span>
                   </span>
@@ -151,6 +135,19 @@ export default function LostFoundPage() {
                   <span className="text-sm text-foreground-muted truncate">{r.station ?? "Station not found"}</span>
                   <span className="text-xs text-foreground-dim tabular-nums" title={dateTime(r.reportedAt)}>
                     {timeAgo(r.reportedAt, now)}
+                  </span>
+                  <span className="lg:text-right" onClick={(e) => e.stopPropagation()}>
+                    {open && (
+                      <CloseLostFound
+                        compact
+                        id={r.id}
+                        matches={r.match ? [{ id: r.match.with, open: null, score: r.match.score, strong: r.match.strong }] : []}
+                        onClosed={() => {
+                          list.reload();
+                          week.reload();
+                        }}
+                      />
+                    )}
                   </span>
                 </div>
               );

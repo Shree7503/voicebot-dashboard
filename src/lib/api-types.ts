@@ -126,3 +126,22 @@ export interface LostFoundItem {
   reportedAt: string;
   updatedAt: string | null;
 }
+
+export interface LostFoundDetail {
+  id: string;
+  kind: LostFoundKind | null;
+  state: string | null;
+  caseStatus: CaseStatus | null;
+  open: boolean;
+  item: { name: string | null; group: string | null; brand: string | null; colour: string | null; marks: string | null; nameOnItem: string | null; when: string | null };
+  description: { mr: string | null; asGiven: string | null };
+  place: { spoken: string | null; english: string | null };
+  station: { name: string | null; phone: string | null; officer: string | null } | null;
+  caller: string | null;
+  matches: { id: string; score: number | null; strong: boolean; item: string | null; open: boolean | null }[];
+  call: { id: string; channel: string | null; startedAt: string; durationSec: number | null; language: string | null; summary: string | null; processing: string | null } | null;
+  closed: { at: string; by: string | null; reason: string | null; note: string | null } | null;
+  reportedAt: string;
+  updatedAt: string | null;
+  timeline: { kind: string; at: string; by: string; text: string }[];
+}

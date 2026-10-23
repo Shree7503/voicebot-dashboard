@@ -2,6 +2,10 @@ import "server-only";
 
 import type { Document } from "mongodb";
 import { botCol } from "../db";
+import { ApiError } from "../errors";
+import type { Actor } from "../http";
+import { maskPhone, scrubDigits } from "../privacy";
+import { audit } from "./audit";
 import { daysIn, IST_TZ, type DateRange } from "../schemas/query";
 
 /**
@@ -9,8 +13,9 @@ import { daysIn, IST_TZ, type DateRange } from "../schemas/query";
  * (references L-… for lost items, F-… for found ones) and the `match_suggested` events the
  * bot writes when a lost and a found report look like the same item.
  *
- * Figures and status only. What identifies an item or a person (brand, colour, marks, IMEI,
- * the phone number on the item, the description, the caller's number) is never read.
+ * Lists and figures carry no item details. One report's page shows its details and its call;
+ * the caller's number stays masked until revealed, and each reveal is audited. The phone number
+ * and IMEI written on an item are never read.
  */
 
 export const KINDS = ["lost", "found"] as const;
@@ -151,4 +156,157 @@ export async function lostFoundList(query: LostFoundQuery) {
     }),
     nextBefore: docs.length > query.limit ? page[page.length - 1].createdAt.toISOString() : null,
   };
+}
+
+// ------------------------------------------------------------------ one report
+
+/** A timeline step in plain words. Event data that carries item details is not passed on. */
+function describeEvent(kind: string, data: Document | undefined): string {
+  switch (kind) {
+    case "created":
+      return "Reported to the bot";
+    case "detail_added":
+      return "More details added during the call";
+    case "match_suggested":
+      return `Possible match suggested: ${data?.lost && data?.found ? `${data.lost} and ${data.found}` : "another report"}${
+        typeof data?.score === "number" ? ` (score ${data.score}${data.strong ? ", strong" : ""})` : ""
+      }`;
+    case "alert_queued":
+      return "WhatsApp alert queued";
+    case "alert_sent":
+      return "WhatsApp alert sent to the control room";
+    case "alert_failed":
+      return "WhatsApp alert failed";
+    case "caller_message_queued":
+      return "WhatsApp message to the caller queued";
+    case "caller_message_sent":
+      return "WhatsApp message sent to the caller";
+    case "closed":
+      return data?.reason === "returned" ? `Returned to the owner${data?.note ? `: ${data.note}` : ""}` : `Closed${data?.note ? `: ${data.note}` : ""}`;
+    default:
+      return kind.replace(/_/g, " ");
+  }
+}
+
+async function findReport(id: string) {
+  const doc = await (await botCol("cases")).findOne({ _id: id as unknown as Document["_id"], ...LOST_FOUND });
+  if (!doc) throw new ApiError(404, "not_found", `There is no lost-and-found report ${id}.`);
+  return doc;
+}
+
+/** Everything about one report, for the detail page. The caller's number stays masked. */
+export async function getLostFound(id: string) {
+  const doc = await findReport(id);
+  const [events, matches, call] = await Promise.all([
+    (await botCol("case_events")).find({ caseId: id }).sort({ at: 1 }).limit(500).toArray(),
+    suggestedMatches({ caseId: id }),
+    doc.interactionId
+      ? (await botCol("interactions")).findOne(
+          { _id: doc.interactionId },
+          { projection: { channel: 1, startedAt: 1, durationSec: 1, turnCounts: 1, "summary.summary": 1, "summary.language": 1, status: 1 } },
+        )
+      : null,
+  ]);
+  const others = await (await botCol("cases"))
+    .find({ _id: { $in: matches.map((m) => (m.lost === id ? m.found : m.lost)) as unknown as Document["_id"][] } }, { projection: { _id: 1, status: 1, "lostFound.state": 1, "lostFound.item": 1, "lostFound.group": 1 } })
+    .toArray();
+  const lf = doc.lostFound ?? {};
+
+  return {
+    id,
+    kind: lf.kind === "lost" || lf.kind === "found" ? (lf.kind as Kind) : null,
+    state: lf.state ?? null,
+    caseStatus: doc.status ?? null,
+    open: lf.state === "open" && doc.status !== "closed",
+    item: {
+      name: lf.item ?? null,
+      group: lf.group ?? doc.category ?? null,
+      brand: lf.brand ?? null,
+      colour: lf.colour ?? null,
+      marks: scrubDigits(lf.marks),
+      nameOnItem: lf.nameOnItem ?? null,
+      when: lf.when ?? null,
+    },
+    description: { mr: scrubDigits(doc.description?.mr), asGiven: scrubDigits(doc.description?.asGiven) },
+    place: { spoken: doc.location?.spoken ?? null, english: doc.location?.english ?? null },
+    station: doc.station ? { name: doc.station.name ?? null, phone: doc.station.phone ?? null, officer: doc.station.officer ?? null } : null,
+    caller: maskPhone(doc.citizen?.phone),
+    matches: matches.map((m) => {
+      const otherId = m.lost === id ? m.found : m.lost;
+      const other = others.find((o) => String(o._id) === otherId);
+      return {
+        id: otherId,
+        score: m.score,
+        strong: m.strong,
+        item: other?.lostFound?.item ?? null,
+        open: other ? other.lostFound?.state === "open" && other.status !== "closed" : null,
+      };
+    }),
+    call: call
+      ? {
+          id: String(call._id),
+          channel: call.channel ?? null,
+          startedAt: call.startedAt,
+          durationSec: call.durationSec ?? null,
+          language: call.summary?.language ?? null,
+          summary: call.summary?.summary ?? null,
+          processing: call.status ?? null,
+        }
+      : null,
+    closed: doc.closedAt ? { at: doc.closedAt, by: doc.closedBy ?? null, reason: lf.state ?? null, note: scrubDigits(doc.closeNote) } : null,
+    reportedAt: doc.createdAt,
+    updatedAt: doc.updatedAt ?? null,
+    timeline: events.map((e) => ({ kind: e.kind, at: e.at, by: e.by ?? "system", text: describeEvent(e.kind, e.data) })),
+  };
+}
+
+export const CLOSE_REASONS = ["returned", "closed"] as const;
+
+/**
+ * Closes a report: `returned` when the item is back with its owner, `closed` for any other
+ * reason. Sets the bot's own fields (status, lostFound.state) and writes a case_events entry,
+ * as the bot's staff commands do, so the bot sees the same thing. Optionally closes the matched
+ * report too.
+ */
+export async function closeLostFound(
+  actor: Actor,
+  id: string,
+  change: { reason: (typeof CLOSE_REASONS)[number]; note: string; alsoClose?: string },
+) {
+  const ids = [id];
+  if (change.alsoClose) {
+    const pair = (await suggestedMatches({ caseId: id })).some((m) => (m.lost === id ? m.found : m.lost) === change.alsoClose);
+    if (!pair) throw new ApiError(422, "not_a_match", `${change.alsoClose} is not a suggested match for ${id}.`);
+    ids.push(change.alsoClose);
+  }
+  const cases = await botCol("cases");
+  const events = await botCol("case_events");
+  for (const caseId of ids) {
+    const before = await findReport(caseId);
+    if (before.status === "closed" || before.lostFound?.state !== "open") {
+      if (caseId === id) throw new ApiError(409, "already_closed", `${caseId} is already closed.`);
+      continue; // the matched report was closed already: nothing to do
+    }
+    const now = new Date();
+    await cases.updateOne(
+      { _id: before._id },
+      { $set: { status: "closed", "lostFound.state": change.reason, closedAt: now, closedBy: actor.name, closeNote: change.note, updatedAt: now } },
+    );
+    await events.insertOne({
+      caseId,
+      kind: "closed",
+      at: now,
+      by: actor.name,
+      data: { reason: change.reason, note: change.note, ...(caseId !== id ? { with: id } : {}) },
+    });
+    await audit(actor, "lost_found.close", `case:${caseId}`, { status: before.status, state: before.lostFound?.state ?? null }, { status: "closed", state: change.reason }, change.note);
+  }
+  return getLostFound(id);
+}
+
+/** The caller's full number. Every reveal is audited. */
+export async function revealLostFoundCaller(actor: Actor, id: string) {
+  const doc = await findReport(id);
+  await audit(actor, "lost_found.caller.reveal", `case:${id}`, null, null);
+  return { phone: doc.citizen?.phone ?? null };
 }

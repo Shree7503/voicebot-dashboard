@@ -65,6 +65,9 @@ Errors are `{ error: { code, message, details? } }`; validation errors (422) car
 | GET | `/api/calls/:id/transcript` | the stored (already redacted) conversation; each view is written to the audit log |
 | GET | `/api/lost-found/stats` | reported (lost / found) per day, still open, matches to check, resolved |
 | GET | `/api/lost-found` | `kind` (lost / found), `open=true\|false`; reference, item type, status, match, station, dates only |
+| GET | `/api/lost-found/:id` | one report: item details, place, station, masked caller, matches, linked call, timeline |
+| POST | `/api/lost-found/:id/close` | `{reason: "returned" \| "closed", note?, alsoClose?}`; also closes the suggested match if given; audited |
+| POST | `/api/lost-found/:id/caller` | the caller's full number; audited |
 | GET | `/api/audit` | `action, user, target, before` |
 
 ## Privacy
@@ -73,5 +76,5 @@ Errors are `{ error: { code, message, details? } }`; validation errors (422) car
   are separate requests, each written to the audit log. Alert recipients and incident phone lists
   are never returned.
 - Free text (descriptions, notes) has long digit runs removed, including Devanagari digits.
-- Lost and found: only reference, lost/found, item type, status, match, station, dates and counts
-  are read; item details and phone numbers are never fetched from the database.
+- Lost and found: lists and figures carry no item details; one report's page shows them with the
+  masked caller. The phone number and IMEI written on an item are never read.

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "@/lib/auth";
@@ -61,9 +62,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       {/* Mobile header */}
       <header className="flex md:hidden items-center justify-between border-b border-border bg-surface px-4 py-3">
         <div className="flex items-center gap-2">
-          <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-accent" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-          </svg>
+          <Image src="/logo.png" alt="Maharashtra Police emblem" width={367} height={271} priority className="h-7 w-auto" />
           <span className="text-sm font-semibold">RakshakAI</span>
         </div>
         <button
@@ -119,9 +118,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       <aside className="hidden md:flex w-56 flex-col border-r border-border bg-surface">
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-5 py-5 border-b border-border">
-          <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6 text-accent" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-          </svg>
+          <Image src="/logo.png" alt="Maharashtra Police emblem" width={367} height={271} priority className="h-10 w-auto" />
           <div>
             <div className="text-sm font-semibold text-foreground">RakshakAI</div>
             <div className="text-[11px] text-foreground-dim">Nashik Gramin Police</div>
