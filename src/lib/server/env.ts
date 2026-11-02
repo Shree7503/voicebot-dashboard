@@ -26,6 +26,13 @@ export const env = {
     const raw = process.env.COST_PER_MINUTE_INR;
     return raw ? Number(raw) : null;
   },
+  /** Documents in S3, reached by assuming this role through Vercel OIDC (no AWS keys). */
+  get documents(): { roleArn: string; region: string; bucket: string } | null {
+    const roleArn = process.env.AWS_ROLE_ARN?.trim();
+    const region = process.env.AWS_REGION?.trim();
+    const bucket = process.env.S3_BUCKET_NAME?.trim();
+    return roleArn && region && bucket ? { roleArn, region, bucket } : null;
+  },
   get isProduction() {
     return process.env.NODE_ENV === "production";
   },

@@ -12,6 +12,9 @@
     "admin": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/dashboard-admin.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@aws-sdk/s3-request-presigner": "^3.1161.0",
+    "@vercel/oidc-aws-credentials-provider": "^3.3.17",
     "jose": "^6.2.13",
     "mongodb": "^7.7.0",
     "mongoose": "^9.11.2",

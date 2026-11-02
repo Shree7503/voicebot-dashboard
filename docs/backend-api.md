@@ -68,6 +68,10 @@ Errors are `{ error: { code, message, details? } }`; validation errors (422) car
 | GET | `/api/lost-found/:id` | one report: item details, place, station, masked caller, matches, linked call, timeline |
 | POST | `/api/lost-found/:id/close` | `{reason: "returned" \| "closed", note?, alsoClose?}`; also closes the suggested match if given; audited |
 | POST | `/api/lost-found/:id/caller` | the caller's full number; audited |
+| GET | `/api/documents` | the PDFs in `uploads/`, newest first |
+| POST | `/api/documents` | `{fileName, size, contentType: "application/pdf", key?}` → a 5-minute upload link (PUT). Without `key`: a new document; with an existing key: replaces it. Signed for the exact size and type; max 50 MB |
+| DELETE | `/api/documents?key=uploads/…` | deletes it; restorable for 30 days (versioned bucket) |
+| PATCH | `/api/documents` | `{key}` → a 5-minute link that opens the PDF |
 | GET | `/api/audit` | `action, user, target, before` |
 
 ## Privacy
@@ -78,3 +82,32 @@ Errors are `{ error: { code, message, details? } }`; validation errors (422) car
 - Free text (descriptions, notes) has long digit runs removed, including Devanagari digits.
 - Lost and found: lists and figures carry no item details; one report's page shows them with the
   masked caller. The phone number and IMEI written on an item are never read.
+
+## Documents (S3)
+
+PDFs live in `S3_BUCKET_NAME` under `uploads/`. The dashboard stores no AWS keys: it assumes
+`AWS_ROLE_ARN` through Vercel OIDC (`@vercel/oidc-aws-credentials-provider`). The browser uploads
+and opens files directly with 5-minute signed links, so files never pass through Vercel and its
+4.5 MB request limit doesn't apply. Every upload link, replacement, opening and deletion is written
+to the audit log.
+
+- **Locally:** link the folder to the Vercel project once (`vercel link`), then `vercel env pull`
+  writes a `VERCEL_OIDC_TOKEN` (valid about 12 hours) into `.env.local`. Without it the Documents
+  page says it couldn't sign in to document storage.
+- **The role** needs `s3:ListBucket` (prefix `uploads/`) and `s3:GetObject`, `s3:PutObject`,
+  `s3:DeleteObject` on `arn:aws:s3:::<bucket>/uploads/*`, and its trust policy must accept the
+  Vercel project's OIDC token.
+- **The bucket** needs versioning on (30-day restore through a lifecycle rule for noncurrent
+  versions) and CORS rules that let the dashboard's site upload from the browser:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://<dashboard domain>", "http://localhost:3000"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
